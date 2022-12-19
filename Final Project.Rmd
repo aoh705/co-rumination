@@ -1,0 +1,296 @@
+---
+title: "Final Project"
+author: "A.Oh"
+date: "2022-12-02"
+output: html_document
+---
+
+Variables and summary statistics:
+```{r}
+library(ggplot2)
+df2 <- read.csv('Data/1_cleaned_corumination_full.csv')
+
+df <- read.csv('Data/1b_clean_longformat_CRR.csv')
+
+head(df)
+head(df2)
+```
+
+Examining variables:
+```{r}
+male <- subset(df, df$gender == -0.5)
+head(male)
+
+female <- subset(df, df$gender == 0.5)
+head(female)
+
+plot(df$gender, df$corum_cb)
+plot(df$gender, df$corum_cw)
+
+plot(df$age, df$corum_cb)
+plot(df$age, df$corum_cw)
+
+#from df2
+plot(df2$corum, df2$rumination)
+plot(df2$gender, df2$corum)
+plot(df2$gender, df2$rumination)
+plot(df2$age, df2$corum)
+plot(df2$age, df2$rumination)
+
+hist(df$gender, xlab = "gender", main = "Frequency of Gender")
+hist(df$race, xlab = "race", main = "Frequency of Different Races")
+hist(df$time, xlab = "time", main = "Frequency of time wave observations")
+hist(df$id_count, xlab = "id count", main = "Frequency of participation")
+hist(df$age, xlab = "age", main = "Frequency of ages")
+plot(df$corum_cw, df$rumination, xlab = "Within-person Co-rumination", ylab = "Rumination")
+ggplot(df, aes(x = corum_cw, y = rumination)) + geom_point() + labs(title = "Association between Within-person Co-Rumination and Rumination", x = "Within-person Co-Rumination", y = "Rumination")
+hist(df$time, xlab = "time points", main = "Frequency of times participated")
+
+plot(df$gender, df$corum_cw)
+hist(df$corum_cb)
+hist(df$corum_cw, xlab = "Within-person Co-rumination", main= "Co-rumination Distribution")
+hist(df$rumination, xlab = "Raw Rumination", main= "Rumination Distribution")
+hist(df$rumination_cb)
+
+```
+
+modeling the variables:
+(trial)
+```{r}
+#subsetting for boys and girls to plot their different regression lines on a plot
+df_boys <- subset(df, df$gender == -0.5)
+df_girls <- subset(df, df$gender == 0.5)
+
+mod <- lm(rumination ~ age + time * gender * corum_cw + corum_cb * gender +
+             (time | id), data = df)
+mod2 <- lm(rumination ~ age + time * gender * corum_cw + corum_cb * gender, data = df_boys)
+mod3 <- lm(rumination ~ age + time * gender * corum_cw + corum_cb * gender, data = df_girls)
+
+p1 <- ggplot(df, aes(x = corum_cw, y = rumination)) + 
+  geom_abline(aes(intercept = summary(mod)$coefficients[1], slope = summary(mod)$coefficients[5]))
+p1
+
+p2 <- ggplot(df, aes(x = corum_cw, y = rumination)) + 
+  geom_point() + 
+  geom_abline(aes(intercept = summary(mod2)$coefficients[1], slope = summary(mod2)$coefficients[5], color = 'red')) +
+  geom_abline(aes(intercept = summary(mod3)$coefficients[1], slope = summary(mod3)$coefficients[5], color = 'pink'))
+p2
+
+p3 <- ggplot(df, aes(x = corum_cw, y = rumination)) + 
+  geom_point() + 
+  geom_abline(aes(intercept = summary(mod)$coefficients[1], slope = summary(mod2)$coefficients[5], color = 'red')) +
+  geom_abline(aes(intercept = summary(mod)$coefficients[1], slope = summary(mod3)$coefficients[5], color = 'pink'))
+  
+p3
+
+```
+
+Final reproduction of model
+```{r}
+#install.packages("interactions")
+#install.packages("extrafont")
+library(interactions)
+library(extrafont)
+
+mod_lin <- lm(rumination ~ age + time * gender * corum_cw + corum_cb * gender + (time | id), data = df)
+
+cr <- interact_plot(mod_lin, pred = corum_cw, modx = gender,
+              x.label = 'Within-person Changes in Co-Rumination',
+              y.label = 'Rumination',
+              modx.values = c(-0.5, 0.5), modx.labels = c('boys','girls'),
+              main.title = "Within-person Changes in Co-rumination and Rumination as a Function of Gender", 
+              legend.main = 'genders', data = df)
+cr + theme(plot.title = element_text(size = 10))
+
+#reference: https://www.rdocumentation.org/packages/jtools/versions/0.4.5/topics/interact_plot
+#plots the interaction effects on the plot
+
+#Time points
+cr2 <- interact_plot(mod_lin, pred = corum_cw, modx = time,
+              x.label = 'Within-person Changes in Co-Rumination',
+              y.label = 'Rumination',
+              modx.values = c(0, 3, 6), modx.labels = c('T1', 'T3', 'T7'),
+              main.title = "Within-person Changes in Co-rumination and Rumination as a Function of Time", 
+              legend.main = 'Time Points')
+cr2 + theme(plot.title = element_text(size = 10))
+
+
+```
+
+Validating the model:
+```{r}
+k <- 10
+folds <- sample(k, n, replace=TRUE)
+metrics <- matrix(NA, ncol=1, nrow=k)
+for(i in seq_len(k)){
+    is_train <- folds != i
+    is_test <- !is_train
+    
+    train_df <- df[is_train, ]
+    test_df <- df[is_test, ]
+    
+    new_mod <- lm(rumination ~ age + time * gender * corum_cw + corum_cb * gender + (time | id), data = train_df)
+    y_hat <- predict(new_mod, newdata = test_df)
+    new_error <- (test_df$rumination - y_hat)
+    
+    metrics[i,1] <- sqrt(mean(na.omit(new_error) ^2)) # rmse, almost std deviation (not taking away mean)
+}
+#evaluating performance of model 
+apply(metrics, 2, mean)
+
+```
+
+
+Evaluating the result:
+(altering features --> testing sensitivity to model choice)
+```{r}
+mod_change1 <- lm(rumination ~ age + corum_cw + corum_cb * gender + time +
+             (time | id), data = df)
+cr <- interact_plot(mod_change1, pred = corum_cw, modx = gender,
+              x.label = 'Within-person Changes in Co-Rumination',
+              y.label = 'Rumination',
+              modx.values = c(-0.5, 0.5), modx.labels = c('boys','girls'),
+              main.title = "Within-person Changes in Co-rumination and Rumination as a Function of Gender1", 
+              legend.main = 'genders')
+cr + theme(plot.title = element_text(size = 10))
+
+crb <- interact_plot(mod_change1, pred = corum_cw, modx = time,
+              x.label = 'Within-person Changes in Co-Rumination',
+              y.label = 'Rumination',
+              modx.values = c(0, 3, 6), modx.labels = c('T1', 'T3', 'T7'),
+              main.title = "Within-person Changes in Co-rumination and Rumination as a Function of Time1", 
+              legend.main = 'Time Points')
+crb + theme(plot.title = element_text(size = 10))
+
+mod_change2 <- lm(rumination ~ time + corum_cw * gender * age + corum_cb, data = df)
+
+cr2 <- interact_plot(mod_change2, pred = corum_cw, modx = gender,
+              x.label = 'Within-person Changes in Co-Rumination',
+              y.label = 'Rumination',
+              modx.values = c(-0.5, 0.5), modx.labels = c('boys','girls'),
+              main.title = "Within-person Changes in Co-rumination and Rumination as a Function of Gender2", 
+              legend.main = 'genders')
+cr2 + theme(plot.title = element_text(size = 10))
+
+cr2b <- interact_plot(mod_change2, pred = corum_cw, modx = time,
+              x.label = 'Within-person Changes in Co-Rumination',
+              y.label = 'Rumination',
+              modx.values = c(0, 3, 6), modx.labels = c('T1', 'T3', 'T7'),
+              main.title = "Within-person Changes in Co-rumination and Rumination as a Function of Time2", 
+              legend.main = 'Time Points')
+cr2b + theme(plot.title = element_text(size = 10))
+
+mod_change3 <- lm(rumination ~ age + time * gender * corum_cw + corum_cb * gender , data = df)
+cr3 <- interact_plot(mod_change3, pred = corum_cw, modx = gender,
+              x.label = 'Within-person Changes in Co-Rumination',
+              y.label = 'Rumination',
+              modx.values = c(-0.5, 0.5), modx.labels = c('boys','girls'),
+              main.title = "Within-person Changes in Co-rumination and Rumination as a Function of Gender3", 
+              legend.main = 'genders')
+cr3 + theme(plot.title = element_text(size = 10))
+
+cr3b <- interact_plot(mod_change3, pred = corum_cw, modx = time,
+              x.label = 'Within-person Changes in Co-Rumination',
+              y.label = 'Rumination',
+              modx.values = c(0, 3, 6), modx.labels = c('T1', 'T3', 'T7'),
+              main.title = "Within-person Changes in Co-rumination and Rumination as a Function of Time3", 
+              legend.main = 'Time Points')
+cr3b + theme(plot.title = element_text(size = 10))
+
+mod_change4 <- lm(rumination ~ age * time * corum_cw * gender + corum_cb, data = df)
+cr4 <- interact_plot(mod_change4, pred = corum_cw, modx = gender,
+              x.label = 'Within-person Changes in Co-Rumination',
+              y.label = 'Rumination',
+              modx.values = c(-0.5, 0.5), modx.labels = c('boys','girls'),
+              main.title = "Within-person Changes in Co-rumination and Rumination as a Function of Gender4", 
+              legend.main = 'genders')
+cr4 + theme(plot.title = element_text(size = 10))
+
+cr4b <- interact_plot(mod_change4, pred = corum_cw, modx = time,
+              x.label = 'Within-person Changes in Co-Rumination',
+              y.label = 'Rumination',
+              modx.values = c(0, 3, 6), modx.labels = c('T1', 'T3', 'T7'),
+              main.title = "Within-person Changes in Co-rumination and Rumination as a Function of Time4", 
+              legend.main = 'Time Points')
+cr4b + theme(plot.title = element_text(size = 10))
+```
+
+(Sensitivity to data)
+```{r}
+change_time <- df$time < 4
+df_time <- df[change_time,]
+
+mod_change5 <- lm(rumination ~ age + time * gender * corum_cw + corum_cb * gender + (time | id), data = df_time)
+cr5 <- interact_plot(mod_change5, pred = corum_cw, modx = gender,
+              x.label = 'Within-person Changes in Co-Rumination',
+              y.label = 'Rumination',
+              modx.values = c(-0.5, 0.5), modx.labels = c('boys','girls'),
+              main.title = "Within-person Changes in Co-rumination and Rumination as a Function of Gender5", 
+              legend.main = 'genders')
+cr5 + theme(plot.title = element_text(size = 10))
+
+cr5b <- interact_plot(mod_change5, pred = corum_cw, modx = time,
+              x.label = 'Within-person Changes in Co-Rumination',
+              y.label = 'Rumination',
+              modx.values = c(0, 3, 6), modx.labels = c('T1', 'T3', 'T7'),
+              main.title = "Within-person Changes in Co-rumination and Rumination as a Function of Time5", 
+              legend.main = 'Time Points')
+cr5b + theme(plot.title = element_text(size = 10))
+
+change_count <- df$id_count == 5
+df_count <- df[change_count,]
+mod_change6 <- lm(rumination ~ age + time * gender * corum_cw + corum_cb * gender + (time | id), data = df_count)
+cr6 <- interact_plot(mod_change6, pred = corum_cw, modx = gender,
+              x.label = 'Within-person Changes in Co-Rumination',
+              y.label = 'Rumination',
+              modx.values = c(-0.5, 0.5), modx.labels = c('boys','girls'),
+              main.title = "Within-person Changes in Co-rumination and Rumination as a Function of Gender6", 
+              legend.main = 'genders')
+cr6 + theme(plot.title = element_text(size = 10))
+
+cr6b <- interact_plot(mod_change6, pred = corum_cw, modx = time,
+              x.label = 'Within-person Changes in Co-Rumination',
+              y.label = 'Rumination',
+              modx.values = c(0, 3, 6), modx.labels = c('T1', 'T3', 'T7'),
+              main.title = "Within-person Changes in Co-rumination and Rumination as a Function of Time6", 
+              legend.main = 'Time Points')
+cr6b + theme(plot.title = element_text(size = 10))
+
+change_age <- df$age < 13
+df_age <- df[change_age,]
+mod_change7 <- lm(rumination ~ age + time * gender * corum_cw + corum_cb * gender + (time | id), data = df_age)
+cr7 <- interact_plot(mod_change7, pred = corum_cw, modx = gender,
+              x.label = 'Within-person Changes in Co-Rumination',
+              y.label = 'Rumination',
+              modx.values = c(-0.5, 0.5), modx.labels = c('boys','girls'),
+              main.title = "Within-person Changes in Co-rumination and Rumination as a Function of Gender7", 
+              legend.main = 'genders')
+cr7 + theme(plot.title = element_text(size = 10))
+
+cr7b <- interact_plot(mod_change7, pred = corum_cw, modx = time,
+              x.label = 'Within-person Changes in Co-Rumination',
+              y.label = 'Rumination',
+              modx.values = c(0, 3, 6), modx.labels = c('T1', 'T3', 'T7'),
+              main.title = "Within-person Changes in Co-rumination and Rumination as a Function of Time7", 
+              legend.main = 'Time Points')
+cr7b + theme(plot.title = element_text(size = 10))
+
+mod_change8 <- lm(rumination ~ time * gender * corum_cw + corum_cb * gender + id_count, data = df)
+cr8 <- interact_plot(mod_change8, pred = corum_cw, modx = gender,
+              x.label = 'Within-person Changes in Co-Rumination',
+              y.label = 'Rumination',
+              modx.values = c(-0.5, 0.5), modx.labels = c('boys','girls'),
+              main.title = "Within-person Changes in Co-rumination and Rumination as a Function of Gender8", 
+              legend.main = 'genders')
+cr8 + theme(plot.title = element_text(size = 10))
+
+cr8b <- interact_plot(mod_change8, pred = corum_cw, modx = time,
+              x.label = 'Within-person Changes in Co-Rumination',
+              y.label = 'Rumination',
+              modx.values = c(0, 3, 6), modx.labels = c('T1', 'T3', 'T7'),
+              main.title = "Within-person Changes in Co-rumination and Rumination as a Function of Time8", 
+              legend.main = 'Time Points')
+cr8b + theme(plot.title = element_text(size = 10))
+```
+
+
